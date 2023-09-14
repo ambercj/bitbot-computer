@@ -1,0 +1,146 @@
+// Amber Cheng 131009185
+
+CHIP CPU{
+
+    IN  fromM[16],          // M value input  (M = contents of RAM[Address])
+        In[16],    	        // Instruction for execution
+        Reset;              // Signals whether to re-start the current
+                            // program (Reset==1) or continue executing
+                            // the current program (Reset==0).
+
+    OUT toM[16],            // M value output
+        writeM,             // Write to M 
+        addressM[16],       // Address in data memory (of M)
+        PCOut[16];          // address of next instruction
+
+    PARTS:
+    // Instruction bits along with the inverted versions
+    Not(in=In[0], out=notIn0);
+    Not(in=In[1], out=notIn1);
+    Not(in=In[2], out=notIn2);
+    Not(in=In[3], out=notIn3);
+    Not(in=In[4], out=notIn4);
+    Not(in=In[5], out=notIn5);
+    Not(in=In[6], out=notIn6);
+    Not(in=In[7], out=notIn7);
+    Not(in=In[8], out=notIn8);
+    Not(in=In[9], out=notIn9);
+    Not(in=In[10], out=notIn10);
+    Not(in=In[11], out=notIn11);
+    Not(in=In[12], out=notIn12);
+    Not(in=In[13], out=notIn13);
+    Not(in=In[14], out=notIn14);
+    Not(in=In[15], out=notIn15);
+
+    // 1. Register control //
+    // Control the MUX for getting data written in to memory
+    Mux16(a=ALUout, b=fromM, sel=In[15], out=reginput);
+
+    // Leading 4 bits for the memory read
+    And(a=In[15], b=notIn14, out=memopcode);
+    And(a=notIn13, b=notIn12, out=memoptype);
+    And(a=memopcode, b=memoptype, out=memread);
+
+    // Leading 4 bits for the keyboard input
+    And(a=In[15], b=In[14], out=ioopcode);
+    And(a=In[13], b=notIn12, out=iooptype);
+    And(a=ioopcode, b=iooptype, out=ioinput);
+
+    // Combine all conditions for the selector of the load signal to register
+    Or(a=memread, b=ioinput, out=loadregmem);
+    Or(a=loadregmem, b=notIn15, out=loadreg);
+
+    // DMUX to distribute the correct load signal to each register
+    DMux8Way(in=loadreg, sel=In[9..11], a=selreg0, b=selreg1, c=selreg2, d=selreg3, e=selreg4, f=selreg5, g=selreg6, h=selreg7);
+
+    // Define and connect the registers
+    Register(in=reginput, load=selreg0, out=reg0out);
+    Register(in=reginput, load=selreg1, out=reg1out);
+    Register(in=reginput, load=selreg2, out=reg2out);
+    Register(in=reginput, load=selreg3, out=reg3out);
+    Register(in=reginput, load=selreg4, out=reg4out);
+    Register(in=reginput, load=selreg5, out=reg5out);
+    Register(in=reginput, load=selreg6, out=reg6out);
+    Register(in=reginput, load=selreg7, out=reg7out);
+
+    // Register control //
+    Mux8Way16(a=reg0out, b=reg1out, c=reg2out, d=reg3out, e=reg4out, f=reg5out, g=reg6out, h=reg7out, sel=In[6..8], out=xMux);
+    Mux8Way16(a=reg0out, b=reg1out, c=reg2out, d=reg3out, e=reg4out, f=reg5out, g=reg6out, h=reg7out, sel=In[3..5], out=tempMux);
+    Mux16(a=tempMux, b[0..5]=In[0..5], b[6..15]=false, sel=In[12], out=yMux);
+
+    // 2. ALU  //
+    
+    ALU(AluOp=In[12..15], x=xMux, y=yMux, AluOut=ALUout, overflow=overflow);
+
+    // ALU //
+
+
+
+    // 3. Prepare the Memory Address addressM (in case of READ and Write), Memory Data toM (in case of Write or OUT)
+    // addressM //
+    
+    //READ
+    //read from RAM32K
+    //And(a=In[15], b=notIn14, out=memopcode);
+    And(a=notIn13, b=notIn12, out=memoptypeR);
+    And(a=memopcode, b=memoptypeR, out=memRead);
+    //input
+    //And(a=In[15], b=In[14], out=ioopcode);
+    // And(a=In[13], b=notIn12, out=iooptypeI);
+    // And(a=ioopcode, b=iooptypeI, out=ioInput);
+
+    //write
+    //And(a=In[15], b=notIn14, out=memopcode);
+    And(a=In[13], b=notIn12, out=memoptypeW);
+    And(a=memopcode, b=memoptypeW, out=memWrite);
+    //out to screen
+    //And(a=In[15], b=In[14], out=ioopcode);
+    And(a=notIn13, b=notIn12, out=iooptypeO);
+    And(a=ioopcode, b=iooptypeO, out=ioOutput);
+
+    //use bit 6-8 for read and input
+    Mux8Way16(a=reg0out, b=reg1out, c=reg2out, d=reg3out, e=reg4out, f=reg5out, g=reg6out, h=reg7out, sel=In[6..8], out=read);
+    //use bit 9-11 for the write and out
+    Mux8Way16(a=reg0out, b=reg1out, c=reg2out, d=reg3out, e=reg4out, f=reg5out, g=reg6out, h=reg7out, sel=In[9..11], out=write);
+    //go to the Mux for write if it is either write or output
+    Or(a=ioOutput, b=memWrite, out=muxSel);
+    Mux16(a=read, b=write, sel=muxSel, out=addressM);
+    // addressM //
+
+    Mux16(a=false, b=read, sel=muxSel, out=toM);
+
+    // 4. Generate the writeM signal (memory write for RAM or Screen)
+    // writeM is true if it is a Memory Write operation or a Screen OUT operation
+    // writeM //
+
+    Or(a=memWrite, b=ioOutput, out=writeM);
+
+    // writeM //
+
+    
+    // 5. We load the PC with new value if there is a branch
+    // Branch can be conditional or unconditional
+    // Unconditional => In[15..12] = 1011
+    // Conditional => In[15..12] = 1001 && In[8..6]==000
+    // PC //
+    
+    //unconditional jump
+    //And(a=In[15], b=notIn14, out=memopcode); 
+    And(a=In[13], b=In[12], out=jmpoptype); 
+    And(a=memopcode, b=jmpoptype, out=jmp); //1011
+
+    //conditional jump
+    //And(a=In[15], b=notIn14, out=memopcode); 
+    And(a=notIn13, b=In[12], out=beqoptype); 
+    And(a=memopcode, b=beqoptype, out=beq1); //1001
+    Or16Way(in=read, out=orRead); //use the mux for read (bit 6-8)
+    Not(in=orRead, out=beq2); //see if its all 0
+    And(a=beq1, b=beq2, out=beq); //if its both 1001 and 000 then beq
+
+    Or(a=jmp, b=beq, out=PCLoad); //load to the pc if either jmp or beq
+    Mux8Way16(a=reg0out, b=reg1out, c=reg2out, d=reg3out, e=reg4out, f=reg5out, g=reg6out, h=reg7out, sel=In[9..11], out=PCIn);
+    Not(in=PCLoad, out=inc);
+    PC(in=PCIn, load=PCLoad, inc=inc, reset=Reset, out=PCOut);
+    
+    // PC //
+} 
